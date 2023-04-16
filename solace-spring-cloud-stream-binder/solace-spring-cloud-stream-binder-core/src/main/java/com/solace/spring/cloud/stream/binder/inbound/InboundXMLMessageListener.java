@@ -189,16 +189,17 @@ abstract class InboundXMLMessageListener implements Runnable {
 		if (!batchedMessages.isPresent()) {
 			return;
 		}
-
-		AcknowledgmentCallback acknowledgmentCallback = ackCallbackFactory.createBatchCallback(batchedMessages.get());
+    
+    List<AcknowledgmentCallback> messageAcknowledgementCallbacks = ackCallbackFactory.createBatchMessageCallbacks(batchedMessages.get());
+		AcknowledgmentCallback batchAcknowledgementCallback = ackCallbackFactory.createBatchCallbackFromCallbacks(messageAcknowledgementCallbacks);
 		try {
 			List<BytesXMLMessage> xmlMessages = batchedMessages.get()
 					.stream()
 					.map(MessageContainer::getMessage)
 					.collect(Collectors.toList());
-			handleMessage(() -> createBatchMessage(xmlMessages, acknowledgmentCallback),
+			handleMessage(() -> createBatchMessage(xmlMessages, messageAcknowledgementCallbacks, batchAcknowledgementCallback),
 					m -> sendBatchToConsumer(m, xmlMessages),
-					acknowledgmentCallback,
+					batchAcknowledgementCallback,
 					true);
 		} catch (Exception e) {
 			if (e instanceof SolaceBatchAcknowledgementException && ((SolaceBatchAcknowledgementException) e)
@@ -211,13 +212,13 @@ abstract class InboundXMLMessageListener implements Runnable {
 							logger.warn("Exception thrown while processing batch. Batch's message will be requeued.",
 									e);
 						}
-						AckUtils.requeue(acknowledgmentCallback);
+						AckUtils.requeue(batchAcknowledgementCallback);
 					} else {
 						if (logger.isWarnEnabled()) {
 							logger.warn("Exception thrown while processing batch. Batch's messages will be rejected.",
 									e);
 						}
-						AckUtils.reject(acknowledgmentCallback);
+						AckUtils.reject(batchAcknowledgementCallback);
 					}
 				} catch (SolaceAcknowledgmentException e1) {
 					e1.addSuppressed(e);
@@ -240,9 +241,10 @@ abstract class InboundXMLMessageListener implements Runnable {
 	}
 
 	Message<?> createBatchMessage(List<BytesXMLMessage> bytesXMLMessages,
+                  List<AcknowledgmentCallback> messageAcknowledgementCallbacks,
 								  AcknowledgmentCallback acknowledgmentCallback) {
 		setAttributesIfNecessary(bytesXMLMessages, acknowledgmentCallback);
-		return xmlMessageMapper.mapBatchMessage(bytesXMLMessages, acknowledgmentCallback);
+		return xmlMessageMapper.mapBatchMessage(bytesXMLMessages, messageAcknowledgementCallbacks, acknowledgmentCallback, false);
 	}
 
 	void sendOneToConsumer(final Message<?> message, final BytesXMLMessage bytesXMLMessage)

@@ -30,9 +30,21 @@ public class JCSMPAcknowledgementCallbackFactory {
 		return createJCSMPCallback(messageContainer);
 	}
 
-	public AcknowledgmentCallback createBatchCallback(List<MessageContainer> messageContainers) {
+  public List<AcknowledgmentCallback> createBatchMessageCallbacks(List<MessageContainer> messageContainers) {
+    return messageContainers.stream()
+      .map(this::createJCSMPBatchMessageCallback)
+      .collect(Collectors.toList());
+  }
+
+	public AcknowledgmentCallback createBatchCallbackFromCallbacks(List<AcknowledgmentCallback> acknowledgementCallbacks) {
+		return new JCSMPBatchAcknowledgementCallback(acknowledgementCallbacks.stream()
+      .map(JCSMPBatchMessageAcknowledgementCallback.class::cast)
+      .collect(Collectors.toList()), flowReceiverContainer, taskService);
+	}
+
+  public AcknowledgmentCallback createBatchCallback(List<MessageContainer> messageContainers) {
 		return new JCSMPBatchAcknowledgementCallback(messageContainers.stream()
-				.map(this::createJCSMPCallback)
+				.map(this::createJCSMPBatchMessageCallback)
 				.collect(Collectors.toList()), flowReceiverContainer, taskService);
 	}
 
@@ -41,4 +53,8 @@ public class JCSMPAcknowledgementCallbackFactory {
 				taskService, errorQueueInfrastructure);
 	}
 
+  private JCSMPBatchMessageAcknowledgementCallback createJCSMPBatchMessageCallback(MessageContainer messageContainer) {
+		return new JCSMPBatchMessageAcknowledgementCallback(messageContainer, flowReceiverContainer, hasTemporaryQueue,
+				taskService, errorQueueInfrastructure);
+	}
 }

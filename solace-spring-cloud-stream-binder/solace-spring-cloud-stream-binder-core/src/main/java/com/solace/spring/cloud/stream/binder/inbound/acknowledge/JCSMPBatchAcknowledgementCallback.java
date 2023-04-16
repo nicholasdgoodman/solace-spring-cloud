@@ -25,7 +25,7 @@ import java.util.concurrent.TimeoutException;
  * Acknowledgment callback for a batch of messages.
  */
 class JCSMPBatchAcknowledgementCallback implements AcknowledgmentCallback {
-	private final List<JCSMPAcknowledgementCallback> acknowledgementCallbacks;
+	private final List<JCSMPBatchMessageAcknowledgementCallback> acknowledgementCallbacks;
 	private final FlowReceiverContainer flowReceiverContainer;
 	private final RetryableTaskService taskService;
 	private boolean acknowledged = false;
@@ -33,7 +33,7 @@ class JCSMPBatchAcknowledgementCallback implements AcknowledgmentCallback {
 
 	private static final Log logger = LogFactory.getLog(JCSMPBatchAcknowledgementCallback.class);
 
-	JCSMPBatchAcknowledgementCallback(List<JCSMPAcknowledgementCallback> acknowledgementCallbacks,
+	JCSMPBatchAcknowledgementCallback(List<JCSMPBatchMessageAcknowledgementCallback> acknowledgementCallbacks,
 									  FlowReceiverContainer flowReceiverContainer,
 									  RetryableTaskService taskService) {
 		this.acknowledgementCallbacks = acknowledgementCallbacks;
@@ -56,17 +56,17 @@ class JCSMPBatchAcknowledgementCallback implements AcknowledgmentCallback {
 		Throwable firstEncounteredException = null;
 		boolean allStaleExceptions = false;
 		for (int msgIdx = 0; msgIdx < acknowledgementCallbacks.size(); msgIdx++) {
-			JCSMPAcknowledgementCallback messageAcknowledgementCallback = acknowledgementCallbacks.get(msgIdx);
+			JCSMPBatchMessageAcknowledgementCallback messageAcknowledgementCallback = acknowledgementCallbacks.get(msgIdx);
 			try {
 				if (msgIdx < acknowledgementCallbacks.size() - 1) {
-					messageAcknowledgementCallback.doAsyncRebindIfNecessary();
+					messageAcknowledgementCallback.getInnerCallback().doAsyncRebindIfNecessary();
 				}
-				messageAcknowledgementCallback.acknowledge(status);
+				messageAcknowledgementCallback.acknowledgeInnerCallback(status);
 				if (!hasAtLeastOneSuccessAck) {
-					hasAtLeastOneSuccessAck = messageAcknowledgementCallback.getMessageContainer().isAcknowledged();
+					hasAtLeastOneSuccessAck = messageAcknowledgementCallback.getInnerCallback().getMessageContainer().isAcknowledged();
 				}
 			} catch (Exception e) {
-				boolean isStale = logPotentialStaleException(e, messageAcknowledgementCallback.getMessageContainer());
+				boolean isStale = logPotentialStaleException(e, messageAcknowledgementCallback.getInnerCallback().getMessageContainer());
 				failedMessageIndexes.add(msgIdx);
 				if (firstEncounteredException == null) {
 					firstEncounteredException = e;
@@ -84,13 +84,13 @@ class JCSMPBatchAcknowledgementCallback implements AcknowledgmentCallback {
 		Set<UUID> flowsReceiversToRebind = new HashSet<>();
 
 		for (int msgIdx = 0; msgIdx < acknowledgementCallbacks.size(); msgIdx++) {
-			JCSMPAcknowledgementCallback messageAcknowledgementCallback = acknowledgementCallbacks.get(msgIdx);
+			JCSMPBatchMessageAcknowledgementCallback messageAcknowledgementCallback = acknowledgementCallbacks.get(msgIdx);
 			try {
-				messageAcknowledgementCallback.awaitRebindIfNecessary(1, TimeUnit.MILLISECONDS);
+				messageAcknowledgementCallback.getInnerCallback().awaitRebindIfNecessary(1, TimeUnit.MILLISECONDS);
 			} catch (ExecutionException | InterruptedException exception) {
 				if (exception instanceof ExecutionException && (exception.getCause() instanceof JCSMPException ||
 						exception.getCause() instanceof UnboundFlowReceiverContainerException)) {
-					UUID flowReceiverReferenceId = messageAcknowledgementCallback.getMessageContainer()
+					UUID flowReceiverReferenceId = messageAcknowledgementCallback.getInnerCallback().getMessageContainer()
 							.getFlowReceiverReferenceId();
 					if (!flowsReceiversToRebind.add(flowReceiverReferenceId) && logger.isDebugEnabled()) {
 						logger.debug(String.format("Failed to rebind flow container %s . " +
@@ -101,7 +101,7 @@ class JCSMPBatchAcknowledgementCallback implements AcknowledgmentCallback {
 				}
 
 				Throwable e = exception instanceof ExecutionException ? exception.getCause() : exception;
-				boolean isStale = logPotentialStaleException(e, messageAcknowledgementCallback.getMessageContainer());
+				boolean isStale = logPotentialStaleException(e, messageAcknowledgementCallback.getInnerCallback().getMessageContainer());
 				failedMessageIndexes.add(msgIdx);
 				if (firstEncounteredException == null) {
 					firstEncounteredException = e;
@@ -110,7 +110,7 @@ class JCSMPBatchAcknowledgementCallback implements AcknowledgmentCallback {
 					allStaleExceptions = isStale;
 				}
 			} catch (TimeoutException e) {
-				UUID flowReceiverReferenceId = messageAcknowledgementCallback.getMessageContainer()
+				UUID flowReceiverReferenceId = messageAcknowledgementCallback.getInnerCallback().getMessageContainer()
 						.getFlowReceiverReferenceId();
 				if (!flowsReceiversToRebind.add(flowReceiverReferenceId) && logger.isTraceEnabled()) {
 					logger.trace(String.format("Timed out while waiting for rebind of flow receiver container %s, " +
@@ -163,7 +163,7 @@ class JCSMPBatchAcknowledgementCallback implements AcknowledgmentCallback {
 	public boolean isAcknowledged() {
 		if (acknowledged) {
 			return true;
-		} else if (acknowledgementCallbacks.stream().allMatch(JCSMPAcknowledgementCallback::isAcknowledged)) {
+		} else if (acknowledgementCallbacks.stream().allMatch(JCSMPBatchMessageAcknowledgementCallback::isAcknowledged)) {
 			if (logger.isTraceEnabled()) {
 				logger.trace("All messages in batch are already acknowledged, marking batch as acknowledged");
 			}

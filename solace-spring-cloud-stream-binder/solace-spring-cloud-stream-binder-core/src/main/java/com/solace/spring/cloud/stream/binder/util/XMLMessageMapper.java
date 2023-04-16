@@ -169,16 +169,32 @@ public class XMLMessageMapper {
 	public Message<List<?>> mapBatchMessage(List<? extends XMLMessage> xmlMessages,
 											AcknowledgmentCallback acknowledgmentCallback)
 			throws SolaceMessageConversionException {
-		return mapBatchMessage(xmlMessages, acknowledgmentCallback, false);
+		return mapBatchMessage(xmlMessages, null, acknowledgmentCallback, false);
 	}
 
+  public Message<List<?>> mapBatchMessage(List<? extends XMLMessage> xmlMessages,
+  AcknowledgmentCallback acknowledgmentCallback,
+  boolean setRawMessageHeader) throws SolaceMessageConversionException { 
+    return mapBatchMessage(xmlMessages, null, acknowledgmentCallback, setRawMessageHeader);
+  }
+
 	public Message<List<?>> mapBatchMessage(List<? extends XMLMessage> xmlMessages,
+                      List<AcknowledgmentCallback> messageAcknowledgementCallbacks,
 											AcknowledgmentCallback acknowledgmentCallback,
 											boolean setRawMessageHeader) throws SolaceMessageConversionException {
 		List<Map<String, Object>> batchedHeaders = new ArrayList<>();
 		List<Object> batchedPayloads = new ArrayList<>();
-		for (XMLMessage xmlMessage : xmlMessages) {
-			Message<?> message = mapInternal(xmlMessage).build();
+    for (int n = 0; n < xmlMessages.size(); n++) {
+      XMLMessage xmlMessage = xmlMessages.get(n);
+
+      Message<?> message;
+      if(messageAcknowledgementCallbacks != null) {
+        AcknowledgmentCallback messageAcknowledgmentCallback = messageAcknowledgementCallbacks.get(n);
+			  message = map(xmlMessage, messageAcknowledgmentCallback);
+      } else {
+        message = mapInternal(xmlMessage).build();
+      }
+
 			batchedHeaders.add(message.getHeaders());
 			batchedPayloads.add(message.getPayload());
 		}
@@ -283,7 +299,7 @@ public class XMLMessageMapper {
 
 	private <T> AbstractIntegrationMessageBuilder<T> injectRootMessageHeaders(AbstractIntegrationMessageBuilder<T> builder,
 																		  AcknowledgmentCallback acknowledgmentCallback,
-																		  Object sourceData) {
+																		  Object sourceData) {   
 		return builder.setHeader(IntegrationMessageHeaderAccessor.ACKNOWLEDGMENT_CALLBACK, acknowledgmentCallback)
 				.setHeaderIfAbsent(IntegrationMessageHeaderAccessor.DELIVERY_ATTEMPT, new AtomicInteger(0))
 				.setHeader(IntegrationMessageHeaderAccessor.SOURCE_DATA, sourceData);
